@@ -1,0 +1,122 @@
+using UnityEngine;
+using OpenCvSharp;
+using System.Collections.Generic;
+using System.IO;
+using SFB; // StandaloneFileBrowser this is the package that needs to be installed
+using System.Drawing;
+using UnityEngine.UI;
+
+public class BlueprintTo3D : MonoBehaviour
+{
+    [Header("3D Settings")]
+    public float wallHeight = 3f;
+    public Material wallMaterial;
+
+    [Header("UI References")]
+    public RawImage originalImageUI;
+    public RawImage edgesImageUI;
+    public Slider thresholdSlider;
+    public Text thresholdValueText;
+
+    private Mat originalMat;
+    private Mat edgesMat;
+    private string currentImagePath;
+    private double thresholdValue = 100;
+
+    void Start()
+    {
+        thresholdSlider.onValueChanged.AddListener(OnThresholdChanged);
+    }
+
+    public void PickImage()
+    {
+        string[] paths = StandaloneFileBrowser.OpenFilePanel("Select Blueprint", "", "png", false);
+        if (paths.Length > 0)
+        {
+            currentImagePath = paths[0];
+            LoadAndProcessImage();
+        }
+    }
+
+    void LoadAndProcessImage()
+    {
+        originalMat = Cv2.ImRead(currentImagePath, ImreadModes.Grayscale);
+        originalImageUI.texture = originalMat.ToTexture2D();
+        ApplyCanny();
+    }
+
+    void OnThresholdChanged(float value)
+    {
+        thresholdValue = value;
+        thresholdValueText.text = $"Threshold: {thresholdValue:F0}";
+        ApplyCanny();
+    }
+
+    void ApplyCanny()
+    {
+        if (originalMat == null) return;
+        edgesMat = new Mat();
+        Cv2.Canny(originalMat, edgesMat, thresholdValue, thresholdValue * 2);
+        edgesImageUI.texture = edgesMat.ToTexture2D();
+    }
+
+    public void Generate3DFromEdges()
+    {
+        if (edgesMat == null) return;
+
+        OpenCvSharp.Point[][] contours;
+        HierarchyIndex[] hierarchy;
+        Cv2.FindContours(edgesMat, out contours, out hierarchy, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+
+        foreach (var contour in contours)
+        {
+            if (Cv2.ContourArea(contour) < 50) continue;
+
+            List<Vector3> points = new List<Vector3>();
+            foreach (var p in contour)
+            {
+                points.Add(new Vector3(p.X * 0.01f, 0, p.Y * 0.01f));
+            }
+
+            Mesh mesh = ExtrudePolygon(points, wallHeight);
+            GameObject wallObj = new GameObject("WallShape");
+            wallObj.transform.position = Vector3.zero;
+
+            MeshFilter mf = wallObj.AddComponent<MeshFilter>();
+            MeshRenderer mr = wallObj.AddComponent<MeshRenderer>();
+
+            mf.mesh = mesh;
+            mr.material = wallMaterial;
+        }
+    }
+
+    Mesh ExtrudePolygon(List<Vector3> basePoints, float height)
+    {
+        List<Vector3> verts = new List<Vector3>();
+        List<int> tris = new List<int>();
+
+        int count = basePoints.Count;
+        for (int i = 0; i < count; i++)
+        {
+            verts.Add(basePoints[i]); // bottom
+            verts.Add(basePoints[i] + Vector3.up * height); // top
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            int next = (i + 1) % count;
+            int b0 = i * 2;
+            int t0 = b0 + 1;
+            int b1 = next * 2;
+            int t1 = b1 + 1;
+
+            tris.AddRange(new int[] { b0, t0, t1, b0, t1, b1 });
+        }
+
+        Mesh mesh = new Mesh();
+        mesh.vertices = verts.ToArray();
+        mesh.triangles = tris.ToArray();
+        mesh.RecalculateNormals();
+        return mesh;
+    }
+}
