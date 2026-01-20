@@ -20,6 +20,11 @@ public class BlueprintTo3D_UI : MonoBehaviour
     public Button pickImageButton;        // wired to PickImage()
     public Button generateButton;         // wired to Generate3DFromEdges()
     public Button deleteModelButton;      // wired to deleteAllModel()
+    public Button exportModelButton;      // Gee I wonder what this one does
+
+    [Header("Data")]
+    string savePath;
+    private Mesh meshExport;
 
     // internal, don't want on screen
     private Mat originalMat;   // grayscale source
@@ -29,6 +34,7 @@ public class BlueprintTo3D_UI : MonoBehaviour
     private string currentPath;
     private float currentThreshold = 100f;
 
+
     void Start()
     {
         // Instead of using Update I just check if any value is changed
@@ -36,13 +42,14 @@ public class BlueprintTo3D_UI : MonoBehaviour
         if (pickImageButton != null) pickImageButton.onClick.AddListener(PickImage);
         if (generateButton != null) generateButton.onClick.AddListener(Generate3DFromEdges);
         if (deleteModelButton != null) deleteModelButton.onClick.AddListener(deleteAllModel);
+        if (exportModelButton != null) exportModelButton.onClick.AddListener(exportModel);
 
         // initialize label for threashhold
         if (thresholdValueText != null) thresholdValueText.text = $"Threshold: {thresholdSlider?.value ?? currentThreshold:F0}";
         if (thresholdSlider != null) currentThreshold = thresholdSlider.value;
     }
 
-    /* --- UI actions --- */
+    
 
     //ExtensionFilter extensions = new ExtensionFilter("Images", "png", "jpg", "jpeg");
     //No longer neccesary but still keep it here in case I want to check the struct
@@ -61,7 +68,7 @@ public class BlueprintTo3D_UI : MonoBehaviour
         ApplyCannyAndUpdatePreview();
     }
 
-    // --- Image processing / UI ---
+    
     void LoadAndShowImage(string path)
     {
         // Deletes old
@@ -104,6 +111,12 @@ public class BlueprintTo3D_UI : MonoBehaviour
     //Add comments from here
     public void Generate3DFromEdges()
     {
+        Camera cam = Camera.main;
+        Vector3 camCenter = cam != null
+            ? new Vector3(cam.transform.position.x, 0f, cam.transform.position.z)
+            : Vector3.zero;
+
+
         if (edgesMat == null || edgesMat.Empty())
         {
             Debug.LogWarning("No edges to generate from. Pick image first.");
@@ -140,9 +153,11 @@ public class BlueprintTo3D_UI : MonoBehaviour
             mf.mesh = mesh;
             if (wallMaterial != null) mr.material = wallMaterial;
             created++;
+            meshExport = mesh;
         }
 
         Debug.Log($"Created {created} room meshes.");
+        savePath = Application.dataPath + $"/GeneratedRoom_{created}.obj";
     }
 
     public void deleteAllModel()
@@ -152,6 +167,11 @@ public class BlueprintTo3D_UI : MonoBehaviour
         {
             Destroy(child.gameObject);
         }
+    }
+
+    public void exportModel()
+    {
+        if (savePath != null) SaveModel.exportMesh(meshExport, savePath);
     }
 
     // --- Simple extrusion because I don't know any other method. Hope to learn something new in a few months ---
