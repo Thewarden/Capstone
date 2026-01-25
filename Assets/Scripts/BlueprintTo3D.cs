@@ -94,6 +94,7 @@ public class BlueprintTo3D_UI : MonoBehaviour
 
     void ApplyCannyAndUpdatePreview()
     {
+        /* Don't delte this yet. Trying out new things
         if (originalMat == null || originalMat.Empty()) return;
 
         edgesMat?.Dispose();
@@ -105,6 +106,29 @@ public class BlueprintTo3D_UI : MonoBehaviour
         if (edgesTex != null) { Destroy(edgesTex); edgesTex = null; }
         edgesTex = MatToTexture(edgesMat);
         if (edgesImageUI != null) edgesImageUI.texture = edgesTex;
+
+        */
+
+        if (originalMat == null || originalMat.Empty()) return;
+
+        edgesMat?.Dispose();
+        edgesMat = new Mat();
+
+        
+        Cv2.Threshold(originalMat, edgesMat, currentThreshold, 255, ThresholdTypes.BinaryInv);
+
+        // This is for making the walls thicker
+        Mat kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5));
+        Cv2.MorphologyEx(edgesMat, edgesMat, MorphTypes.Close, kernel);
+        Cv2.Dilate(edgesMat, edgesMat, kernel, iterations: 2);
+
+        kernel.Dispose();
+
+        
+        if (edgesTex != null) Destroy(edgesTex);
+        edgesTex = MatToTexture(edgesMat);
+        if (edgesImageUI != null) edgesImageUI.texture = edgesTex;
+
     }
 
     /* --- Generate 3D from current edgesMat --- */
