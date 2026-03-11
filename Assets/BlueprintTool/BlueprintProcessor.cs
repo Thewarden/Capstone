@@ -1,6 +1,7 @@
 using UnityEngine;
 using OpenCvSharp;
 using System.Collections.Generic;
+using System;
 
 public class BlueprintProcessor : MonoBehaviour
 {
@@ -62,6 +63,12 @@ public class BlueprintProcessor : MonoBehaviour
         {
             Debug.LogWarning("No edges to generate from. Pick image first.");
             return;
+        }
+
+        if(modelContainer != null && modelContainer.transform.childCount > 0)
+        {
+            Debug.Log("Existing model found. Clearing before regenerating...");
+            deleteAllModel();
         }
 
         if (modelContainer == null)
@@ -218,6 +225,23 @@ public class BlueprintProcessor : MonoBehaviour
         originalMat?.Dispose();
         edgesMat?.Dispose();
         if (previewTexture != null) DestroyImmediate(previewTexture);
+    }
+
+    public void ClearImage()
+    {
+        originalMat?.Dispose();
+        originalMat = null;
+
+        edgesMat?.Dispose();
+        edgesMat = null;
+
+        if(previewTexture != null)
+        {
+            DestroyImmediate(previewTexture);
+            previewTexture = null;
+        }
+
+        Debug.Log("Blueprint image cleared");
     }
 }
 

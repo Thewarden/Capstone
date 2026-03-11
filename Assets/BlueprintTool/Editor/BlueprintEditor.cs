@@ -35,6 +35,14 @@ public class BlueprintEditor : Editor
             }
         }
 
+        GUI.backgroundColor = new Color(1f, 0.75f, 0.25f);
+        if(GUILayout.Button("Clear Imported Image", GUILayout.Height(25)))
+        {
+            Undo.RecordObject(processor, "Clear Blueprint Image");
+            processor.ClearImage();
+        }
+        GUI.backgroundColor = Color.white;
+
         // 3. Visual Preview
         if (processor.previewTexture != null)
         {
