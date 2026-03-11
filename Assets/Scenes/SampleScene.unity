@@ -285,7 +285,7 @@ Transform:
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
   m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 10, y: 30, z: 8}
+  m_LocalPosition: {x: 7.5, y: 9.1, z: 4}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -587,11 +587,15 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BlueprintProcessor
   wallHeight: 0.5
+  wallThickness: 0.04
   pixelToMeter: 0.05
-  wallMaterial: {fileID: 2100000, guid: 975b0c4cbe6653743b8834efdede622b, type: 2}
+  wallMaterial: {fileID: 2100000, guid: 94eeb8984be1c0548acecacb014759fd, type: 2}
   modelContainer: {fileID: 1447132622}
   currentEdgeMode: 1
-  threshold: 72
+  threshold: 135
+  sofaTemplate: {fileID: 0}
+  sofaPrefab: {fileID: 5795588481032084622, guid: 38bee670d49d4434dbc43c2a10df1b53, type: 3}
+  matchThreshold: 1
   previewTexture: {fileID: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

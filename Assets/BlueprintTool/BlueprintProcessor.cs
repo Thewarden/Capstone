@@ -9,6 +9,7 @@ public class BlueprintProcessor : MonoBehaviour
 
     [Header("3D Settings")]
     public float wallHeight = 3f;
+    public float wallThickness = 0.2f;
     public float pixelToMeter = 0.01f;
     public Material wallMaterial;
     public GameObject modelContainer; // Changed from 'model' to match your previous code
@@ -65,67 +66,79 @@ public class BlueprintProcessor : MonoBehaviour
             return;
         }
 
-        if(modelContainer != null && modelContainer.transform.childCount > 0)
-        {
-            Debug.Log("Existing model found. Clearing before regenerating...");
-            deleteAllModel();
-        }
+        // Auto-clear existing models
+        deleteAllModel();
 
         if (modelContainer == null)
-        {
             modelContainer = new GameObject("GeneratedModel_Container");
-        }
 
         Point[][] contours;
         HierarchyIndex[] hierarchy;
-        // Fixed Argument 4: Use 'null' for the offset Point if not needed
-        Cv2.FindContours(edgesMat, out contours, out hierarchy, RetrievalModes.External, ContourApproximationModes.ApproxSimple, null);
+        Cv2.FindContours(edgesMat, out contours, out hierarchy,
+            RetrievalModes.External, ContourApproximationModes.ApproxSimple, null);
 
-        int created = 0;
+        int roomIndex = 0;
         foreach (var contour in contours)
         {
             if (Cv2.ContourArea(contour) < 50) continue;
 
-            List<Vector3> points = new List<Vector3>(contour.Length);
+            // Parent object to group each room's wall cubes
+            GameObject roomParent = new GameObject("Room_" + roomIndex);
+            roomParent.transform.SetParent(modelContainer.transform);
+
             for (int i = 0; i < contour.Length; i++)
             {
-                float x = contour[i].X * pixelToMeter;
-                float z = contour[i].Y * pixelToMeter;
-                points.Add(new Vector3(x, 0f, z));
+                // Get current and next point (wrap around at end)
+                Vector3 startPoint = new Vector3(contour[i].X * pixelToMeter, 0f, contour[i].Y * pixelToMeter);
+                Vector3 endPoint = new Vector3(contour[(i + 1) % contour.Length].X * pixelToMeter, 0f,
+                                                 contour[(i + 1) % contour.Length].Y * pixelToMeter);
+
+                PlaceWallCube(startPoint, endPoint, roomParent.transform, i);
             }
 
-            Mesh mesh = ExtrudePolygon(points, wallHeight);
-            GameObject go = new GameObject("Room_" + created);
-            go.transform.SetParent(modelContainer.transform);
-
-            var mf = go.AddComponent<MeshFilter>();
-            var mr = go.AddComponent<MeshRenderer>();
-            mf.mesh = mesh;
-            if (wallMaterial != null) mr.material = wallMaterial;
-
-            created++;
-            meshExport = mesh; // Note: This only stores the LAST mesh created
+            roomIndex++;
         }
 
-        Debug.Log($"Created {created} room meshes.");
-        savePath = Application.dataPath + $"/GeneratedRoom_{created}.obj";
+        Debug.Log($"Generated {roomIndex} rooms using cube primitives.");
+        savePath = Application.dataPath + $"/GeneratedRoom_{roomIndex}.obj";
+    }
+
+    void PlaceWallCube(Vector3 start, Vector3 end, Transform parent, int index)
+    {
+        float segmentLength = Vector3.Distance(start, end);
+
+        // Skip if points are too close (degenerate edge)
+        if (segmentLength < 0.001f) return;
+
+        // 1. Midpoint → where the cube is placed
+        Vector3 midPoint = (start + end) / 2f;
+        midPoint.y = wallHeight / 2f; // Center cube vertically
+
+        // 2. Direction → used to rotate the cube along the wall edge
+        Vector3 direction = (end - start).normalized;
+        Quaternion rotation = Quaternion.LookRotation(direction, Vector3.up);
+
+        // 3. Scale: length of segment × wall thickness × wall height
+        Vector3 scale = new Vector3(wallThickness, wallHeight, segmentLength);
+
+        // 4. Create cube and configure it
+        GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        wall.name = "Wall_" + index;
+        wall.transform.SetParent(parent);
+        wall.transform.position = midPoint;
+        wall.transform.rotation = rotation;
+        wall.transform.localScale = scale;
+
+        // Apply material if assigned
+        if (wallMaterial != null)
+            wall.GetComponent<MeshRenderer>().material = wallMaterial;
     }
 
     public void deleteAllModel()
     {
         if (modelContainer == null) return;
-
-        Debug.Log("Deleted Meshes");
-        List<GameObject> toDestroy = new List<GameObject>();
         foreach (Transform child in modelContainer.transform)
-        {
-            toDestroy.Add(child.gameObject);
-        }
-
-        for (int i = toDestroy.Count - 1; i >= 0; i--)
-        {
-            DestroyImmediate(toDestroy[i]);
-        }
+            DestroyImmediate(child.gameObject);
     }
 
     public void exportModel()
@@ -139,52 +152,6 @@ public class BlueprintProcessor : MonoBehaviour
     }
 
     // --- Helper Methods ---
-
-    Mesh ExtrudePolygon(List<Vector3> basePoints, float height)
-    {
-        int count = basePoints.Count;
-        List<Vector3> verts = new List<Vector3>();
-        List<int> tris = new List<int>();
-
-        for (int i = 0; i < count; i++)
-        {
-            verts.Add(basePoints[i]);
-            verts.Add(basePoints[i] + Vector3.up * height);
-        }
-
-        for (int i = 0; i < count; i++)
-        {
-            int next = (i + 1) % count;
-            int b0 = i * 2, t0 = b0 + 1, b1 = next * 2, t1 = b1 + 1;
-            tris.Add(b0); tris.Add(t0); tris.Add(t1);
-            tris.Add(b0); tris.Add(t1); tris.Add(b1);
-        }
-
-        Vector3[] poly = basePoints.ToArray();
-        Triangulator tr = new Triangulator(poly);
-        int[] indices = tr.Triangulate();
-
-        for (int i = 0; i < indices.Length; i += 3)
-        {
-            tris.Add(indices[i] * 2);
-            tris.Add(indices[i + 2] * 2);
-            tris.Add(indices[i + 1] * 2);
-        }
-
-        for (int i = 0; i < indices.Length; i += 3)
-        {
-            tris.Add(indices[i] * 2 + 1);
-            tris.Add(indices[i + 1] * 2 + 1);
-            tris.Add(indices[i + 2] * 2 + 1);
-        }
-
-        Mesh mesh = new Mesh();
-        mesh.vertices = verts.ToArray();
-        mesh.triangles = tris.ToArray();
-        mesh.RecalculateNormals();
-        mesh.RecalculateBounds();
-        return mesh;
-    }
 
     Texture2D MatToTexture(Mat mat)
     {
