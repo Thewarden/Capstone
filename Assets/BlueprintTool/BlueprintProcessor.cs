@@ -1,7 +1,8 @@
-using UnityEngine;
 using OpenCvSharp;
-using System.Collections.Generic;
 using System;
+using System.Collections.Generic;
+using UnityEditor;
+using UnityEngine;
 
 public class BlueprintProcessor : MonoBehaviour
 {
@@ -24,6 +25,18 @@ public class BlueprintProcessor : MonoBehaviour
     private Mat edgesMat; // Required for generation logic
     private Mesh meshExport;
     private string savePath;
+
+    [Header("Interior Objects")]
+    public GameObject[] sofaPrefabs;
+    public GameObject[] tablePrefabs;
+    public GameObject[] plantPrefabs;
+    public GameObject[] chairPrefabs;
+    public GameObject[] lampPrefabs;
+
+    [Range(0.05f, 1f)]
+    public float prefabScaleMultiplier = 0.15f;  // ← Add this
+
+    [HideInInspector] public GameObject interiorContainer;
 
     public void LoadImage(string path)
     {
@@ -149,6 +162,169 @@ public class BlueprintProcessor : MonoBehaviour
             Debug.Log($"Exporting to {savePath}");
             // SaveModel.exportMesh(meshExport, savePath); 
         }
+    }
+
+    public GameObject[] GetPrefabArray(string category)
+    {
+        switch (category)
+        {
+            case "Sofa": return sofaPrefabs;
+            case "Table": return tablePrefabs;
+            case "Plant": return plantPrefabs;
+            case "Chair": return chairPrefabs;
+            case "Lamp": return lampPrefabs;
+            default: return null;
+        }
+    }
+
+    // Places the selected prefab at the center of the generated model
+    public void PlaceInteriorObject(GameObject prefab)
+    {
+        if (interiorContainer == null)
+        {
+            interiorContainer = new GameObject("InteriorObjects_Container");
+            if (modelContainer != null)
+                interiorContainer.transform.SetParent(modelContainer.transform.parent);
+        }
+
+        Vector3 spawnPosition = GetModelCenter();
+
+        GameObject placed = PrefabUtility.InstantiatePrefab(prefab) as GameObject;
+        if (placed == null)
+            placed = Instantiate(prefab);
+
+        placed.transform.SetParent(interiorContainer.transform);
+        placed.transform.position = spawnPosition;
+        placed.name = prefab.name + "_" + interiorContainer.transform.childCount;
+
+        // ✅ Scale the prefab to match the model's proportions
+        ScaleObjectToModel(placed);
+
+        Undo.RegisterCreatedObjectUndo(placed, "Place Interior Object");
+        Debug.Log($"Placed {prefab.name} at {spawnPosition}");
+        Selection.activeGameObject = placed;
+    }
+
+    void ScaleObjectToModel(GameObject placed)
+    {
+        // 1. Get the model's bounding box
+        Bounds modelBounds = GetModelBounds();
+
+        // 2. Get the prefab's bounding box at its current scale (scale = 1,1,1 baseline)
+        Bounds prefabBounds = GetObjectBounds(placed);
+
+        if (prefabBounds.size == Vector3.zero || modelBounds.size == Vector3.zero)
+        {
+            Debug.LogWarning("Could not calculate bounds for scaling.");
+            return;
+        }
+
+        // 3. Calculate scale ratios per axis
+        //    We use wallHeight as the reference for Y so objects don't exceed wall height.
+        //    For X and Z we scale relative to the model's footprint size.
+        float scaleX = (modelBounds.size.x / prefabBounds.size.x) * prefabScaleMultiplier;
+        float scaleY = (wallHeight / prefabBounds.size.y) * prefabScaleMultiplier;
+        float scaleZ = (modelBounds.size.z / prefabBounds.size.z) * prefabScaleMultiplier;
+
+        // 4. Use the smallest axis to keep proportions — prevents stretching
+        float uniformScale = Mathf.Min(scaleX, scaleY, scaleZ);
+
+        placed.transform.localScale = Vector3.one * uniformScale;
+
+        Debug.Log($"Scaled {placed.name} by {uniformScale:F3} " +
+                  $"(ModelBounds: {modelBounds.size}, PrefabBounds: {prefabBounds.size})");
+    }
+
+    Bounds GetModelBounds()
+    {
+        Bounds bounds = new Bounds();
+        bool initialized = false;
+
+        foreach (Transform child in modelContainer.transform)
+        {
+            // Direct renderer (mesh-based)
+            Renderer r = child.GetComponent<Renderer>();
+            if (r != null)
+            {
+                if (!initialized) { bounds = r.bounds; initialized = true; }
+                else bounds.Encapsulate(r.bounds);
+            }
+
+            // Grandchildren (cube-based: Room_X → Wall_X)
+            foreach (Transform grandchild in child)
+            {
+                Renderer gr = grandchild.GetComponent<Renderer>();
+                if (gr != null)
+                {
+                    if (!initialized) { bounds = gr.bounds; initialized = true; }
+                    else bounds.Encapsulate(gr.bounds);
+                }
+            }
+        }
+
+        return bounds;
+    }
+
+    // Gets the combined local bounds of a placed prefab (all renderers inside it)
+    Bounds GetObjectBounds(GameObject obj)
+    {
+        Renderer[] renderers = obj.GetComponentsInChildren<Renderer>();
+
+        if (renderers.Length == 0) return new Bounds(obj.transform.position, Vector3.zero);
+
+        Bounds bounds = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+            bounds.Encapsulate(renderers[i].bounds);
+
+        return bounds;
+    }
+
+    Vector3 GetModelCenter()
+    {
+        if (modelContainer == null) return Vector3.zero;
+
+        Bounds bounds = new Bounds();
+        bool boundsInitialized = false;
+
+        foreach (Transform child in modelContainer.transform)
+        {
+            Renderer r = child.GetComponent<Renderer>();
+            if (r == null)
+            {
+                // Check grandchildren (room parents contain wall cubes)
+                foreach (Transform grandchild in child)
+                {
+                    Renderer gr = grandchild.GetComponent<Renderer>();
+                    if (gr != null)
+                    {
+                        if (!boundsInitialized) { bounds = gr.bounds; boundsInitialized = true; }
+                        else bounds.Encapsulate(gr.bounds);
+                    }
+                }
+            }
+            else
+            {
+                if (!boundsInitialized) { bounds = r.bounds; boundsInitialized = true; }
+                else bounds.Encapsulate(r.bounds);
+            }
+        }
+
+        // Spawn at floor level (y = 0), center of the model footprint
+        return new Vector3(bounds.center.x, 0f, bounds.center.z);
+    }
+
+    public void ClearInteriorObjects()
+    {
+        if (interiorContainer == null) return;
+
+        List<GameObject> toDestroy = new List<GameObject>();
+        foreach (Transform child in interiorContainer.transform)
+            toDestroy.Add(child.gameObject);
+
+        for (int i = toDestroy.Count - 1; i >= 0; i--)
+            DestroyImmediate(toDestroy[i]);
+
+        Debug.Log("Cleared all interior objects.");
     }
 
     // --- Helper Methods ---
