@@ -13,16 +13,15 @@ public class BlueprintProcessor : MonoBehaviour
     public float wallThickness = 0.2f;
     public float pixelToMeter = 0.01f;
     public Material wallMaterial;
-    public GameObject modelContainer; // Changed from 'model' to match your previous code
+    public GameObject modelContainer;
 
     [Header("CV Settings")]
     public EdgeMode currentEdgeMode = EdgeMode.Canny;
     [Range(0, 255)] public float threshold = 100f;
 
-    // --- Restored Missing Variables ---
     [HideInInspector] public Texture2D previewTexture;
     private Mat originalMat;
-    private Mat edgesMat; // Required for generation logic
+    private Mat edgesMat;
     private Mesh meshExport;
     private string savePath;
 
@@ -34,7 +33,7 @@ public class BlueprintProcessor : MonoBehaviour
     public GameObject[] lampPrefabs;
 
     [Range(0.05f, 1f)]
-    public float prefabScaleMultiplier = 0.15f;  // ← Add this
+    public float prefabScaleMultiplier = 0.15f;
 
     [HideInInspector] public GameObject interiorContainer;
 
@@ -62,11 +61,10 @@ public class BlueprintProcessor : MonoBehaviour
             using (Mat kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5)))
             {
                 Cv2.MorphologyEx(edgesMat, edgesMat, MorphTypes.Close, kernel);
-                Cv2.Dilate(edgesMat, edgesMat, kernel, null, 2); // Fixed Argument 4 issue
+                Cv2.Dilate(edgesMat, edgesMat, kernel, null, 2);
             }
         }
 
-        // Update the preview for the Editor
         if (previewTexture != null) DestroyImmediate(previewTexture);
         previewTexture = MatToTexture(edgesMat);
     }
@@ -79,7 +77,6 @@ public class BlueprintProcessor : MonoBehaviour
             return;
         }
 
-        // Auto-clear existing models
         deleteAllModel();
 
         if (modelContainer == null)
@@ -95,13 +92,11 @@ public class BlueprintProcessor : MonoBehaviour
         {
             if (Cv2.ContourArea(contour) < 50) continue;
 
-            // Parent object to group each room's wall cubes
             GameObject roomParent = new GameObject("Room_" + roomIndex);
             roomParent.transform.SetParent(modelContainer.transform);
 
             for (int i = 0; i < contour.Length; i++)
             {
-                // Get current and next point (wrap around at end)
                 Vector3 startPoint = new Vector3(contour[i].X * pixelToMeter, 0f, contour[i].Y * pixelToMeter);
                 Vector3 endPoint = new Vector3(contour[(i + 1) % contour.Length].X * pixelToMeter, 0f,
                                                  contour[(i + 1) % contour.Length].Y * pixelToMeter);
@@ -114,27 +109,52 @@ public class BlueprintProcessor : MonoBehaviour
 
         Debug.Log($"Generated {roomIndex} rooms using cube primitives.");
         savePath = Application.dataPath + $"/GeneratedRoom_{roomIndex}.obj";
+
+        meshExport = CombineAllCubesIntoOneMesh();
+
+        if (meshExport != null)
+        {
+            Debug.Log($"3D Model generated and ready for export with {meshExport.vertexCount} vertices.");
+        }
+    }
+
+    private Mesh CombineAllCubesIntoOneMesh()
+    {
+        if (modelContainer == null) return null;
+
+        MeshFilter[] meshFilters = modelContainer.GetComponentsInChildren<MeshFilter>();
+        CombineInstance[] combine = new CombineInstance[meshFilters.Length];
+
+        for (int i = 0; i < meshFilters.Length; i++)
+        {
+            combine[i].mesh = meshFilters[i].sharedMesh;
+            // This ensures the cubes stay in their correct world positions
+            combine[i].transform = modelContainer.transform.worldToLocalMatrix * meshFilters[i].transform.localToWorldMatrix;
+        }
+
+        Mesh combinedMesh = new Mesh();
+        combinedMesh.name = "Exported_Blueprint_Mesh";
+        // Increase index format to handle large blueprints (more than 65k vertices)
+        combinedMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        combinedMesh.CombineMeshes(combine);
+
+        return combinedMesh;
     }
 
     void PlaceWallCube(Vector3 start, Vector3 end, Transform parent, int index)
     {
         float segmentLength = Vector3.Distance(start, end);
 
-        // Skip if points are too close (degenerate edge)
         if (segmentLength < 0.001f) return;
 
-        // 1. Midpoint → where the cube is placed
         Vector3 midPoint = (start + end) / 2f;
-        midPoint.y = wallHeight / 2f; // Center cube vertically
+        midPoint.y = wallHeight / 2f;
 
-        // 2. Direction → used to rotate the cube along the wall edge
         Vector3 direction = (end - start).normalized;
         Quaternion rotation = Quaternion.LookRotation(direction, Vector3.up);
 
-        // 3. Scale: length of segment × wall thickness × wall height
         Vector3 scale = new Vector3(wallThickness, wallHeight, segmentLength);
 
-        // 4. Create cube and configure it
         GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
         wall.name = "Wall_" + index;
         wall.transform.SetParent(parent);
@@ -142,7 +162,6 @@ public class BlueprintProcessor : MonoBehaviour
         wall.transform.rotation = rotation;
         wall.transform.localScale = scale;
 
-        // Apply material if assigned
         if (wallMaterial != null)
             wall.GetComponent<MeshRenderer>().material = wallMaterial;
     }
@@ -150,17 +169,36 @@ public class BlueprintProcessor : MonoBehaviour
     public void deleteAllModel()
     {
         if (modelContainer == null) return;
-        foreach (Transform child in modelContainer.transform)
-            DestroyImmediate(child.gameObject);
+
+        Transform containerT = modelContainer.transform;
+
+        for(int i = containerT.childCount - 1; i >= 0; i--) 
+        {
+            DestroyImmediate(containerT.GetChild(i).gameObject);
+        }
+
+        Debug.Log("Cleared all generated models from container.");
     }
 
     public void exportModel()
     {
-        // Ensure you have a 'SaveModel' utility class or replace this with your export logic
-        if (meshExport != null && !string.IsNullOrEmpty(savePath))
+        // Re-run combine just in case objects were moved manually in the editor
+        meshExport = CombineAllCubesIntoOneMesh();
+
+        if (meshExport == null || meshExport.vertexCount == 0)
         {
-            Debug.Log($"Exporting to {savePath}");
-            // SaveModel.exportMesh(meshExport, savePath); 
+            Debug.LogError("No mesh data found to export! Generate the model first.");
+            return;
+        }
+
+        // Open a save file panel so you can choose where it goes
+        string path = EditorUtility.SaveFilePanel("Export Model as OBJ", "", "GeneratedRoom.obj", "obj");
+
+        if (!string.IsNullOrEmpty(path))
+        {
+            SaveModel.exportMesh(meshExport, path);
+            // Refresh the AssetDatabase so the file shows up in Unity immediately
+            AssetDatabase.Refresh();
         }
     }
 
@@ -177,7 +215,6 @@ public class BlueprintProcessor : MonoBehaviour
         }
     }
 
-    // Places the selected prefab at the center of the generated model
     public void PlaceInteriorObject(GameObject prefab)
     {
         if (interiorContainer == null)
@@ -197,7 +234,6 @@ public class BlueprintProcessor : MonoBehaviour
         placed.transform.position = spawnPosition;
         placed.name = prefab.name + "_" + interiorContainer.transform.childCount;
 
-        // ✅ Scale the prefab to match the model's proportions
         ScaleObjectToModel(placed);
 
         Undo.RegisterCreatedObjectUndo(placed, "Place Interior Object");
@@ -207,10 +243,8 @@ public class BlueprintProcessor : MonoBehaviour
 
     void ScaleObjectToModel(GameObject placed)
     {
-        // 1. Get the model's bounding box
         Bounds modelBounds = GetModelBounds();
 
-        // 2. Get the prefab's bounding box at its current scale (scale = 1,1,1 baseline)
         Bounds prefabBounds = GetObjectBounds(placed);
 
         if (prefabBounds.size == Vector3.zero || modelBounds.size == Vector3.zero)
@@ -219,14 +253,10 @@ public class BlueprintProcessor : MonoBehaviour
             return;
         }
 
-        // 3. Calculate scale ratios per axis
-        //    We use wallHeight as the reference for Y so objects don't exceed wall height.
-        //    For X and Z we scale relative to the model's footprint size.
         float scaleX = (modelBounds.size.x / prefabBounds.size.x) * prefabScaleMultiplier;
         float scaleY = (wallHeight / prefabBounds.size.y) * prefabScaleMultiplier;
         float scaleZ = (modelBounds.size.z / prefabBounds.size.z) * prefabScaleMultiplier;
 
-        // 4. Use the smallest axis to keep proportions — prevents stretching
         float uniformScale = Mathf.Min(scaleX, scaleY, scaleZ);
 
         placed.transform.localScale = Vector3.one * uniformScale;
@@ -242,7 +272,6 @@ public class BlueprintProcessor : MonoBehaviour
 
         foreach (Transform child in modelContainer.transform)
         {
-            // Direct renderer (mesh-based)
             Renderer r = child.GetComponent<Renderer>();
             if (r != null)
             {
@@ -250,7 +279,6 @@ public class BlueprintProcessor : MonoBehaviour
                 else bounds.Encapsulate(r.bounds);
             }
 
-            // Grandchildren (cube-based: Room_X → Wall_X)
             foreach (Transform grandchild in child)
             {
                 Renderer gr = grandchild.GetComponent<Renderer>();
@@ -265,7 +293,6 @@ public class BlueprintProcessor : MonoBehaviour
         return bounds;
     }
 
-    // Gets the combined local bounds of a placed prefab (all renderers inside it)
     Bounds GetObjectBounds(GameObject obj)
     {
         Renderer[] renderers = obj.GetComponentsInChildren<Renderer>();
@@ -309,7 +336,6 @@ public class BlueprintProcessor : MonoBehaviour
             }
         }
 
-        // Spawn at floor level (y = 0), center of the model footprint
         return new Vector3(bounds.center.x, 0f, bounds.center.z);
     }
 
@@ -326,8 +352,6 @@ public class BlueprintProcessor : MonoBehaviour
 
         Debug.Log("Cleared all interior objects.");
     }
-
-    // --- Helper Methods ---
 
     Texture2D MatToTexture(Mat mat)
     {
