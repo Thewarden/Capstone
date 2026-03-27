@@ -619,8 +619,8 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 2.2499, y: -0, z: 0.15837}
-  m_LocalScale: {x: 2.7678, y: 2.7678, z: 2.7678}
-  m_ConstrainProportionsScale: 0
+  m_LocalScale: {x: 10, y: 10, z: 10}
+  m_ConstrainProportionsScale: 1
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -732,11 +732,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::BlueprintProcessor
   wallHeight: 0.3
   wallThickness: 0.05
-  pixelToMeter: 0.05
+  pixelToMeter: 0.02
   wallMaterial: {fileID: 2100000, guid: 94eeb8984be1c0548acecacb014759fd, type: 2}
   modelContainer: {fileID: 1447132622}
   currentEdgeMode: 0
-  threshold: 255
+  threshold: 179
   previewTexture: {fileID: 0}
   sofaPrefabs:
   - {fileID: 6866071241547440114, guid: d0ec78c1a0cd45a44bd5459864e924fa, type: 3}
